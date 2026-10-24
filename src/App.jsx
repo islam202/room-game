@@ -4,42 +4,51 @@ export default function App() {
   const [roomCode, setRoomCode] = useState('');
   const [isInRoom, setIsInRoom] = useState(false);
   const [inputCode, setInputCode] = useState('');
-  const [hasError, setHasError] = useState(false);
+  const [appError, setAppError] = useState('');
 
   useEffect(() => {
     try {
-      // محاولة قراءة كود الغرفة من Query Parameters أو الـ Hash
+      // قراءة الـ Hash أو الـ Search بأمان مطلق
+      const hash = window.location.hash;
       const params = new URLSearchParams(window.location.search);
-      let code = params.get('room');
+      let code = '';
 
-      if (!code && window.location.hash.includes('room=')) {
-        code = window.location.hash.split('room=')[1];
+      if (hash && hash.includes('room=')) {
+        code = hash.split('room=')[1];
+      } else if (params.get('room')) {
+        code = params.get('room');
       }
 
       if (code) {
-        const cleanCode = code.trim().toUpperCase();
-        setRoomCode(cleanCode);
+        setRoomCode(code.trim().toUpperCase());
         setIsInRoom(true);
       }
-    } catch (e) {
-      console.error("Error reading room:", e);
-      setHasError(true);
+    } catch (err) {
+      setAppError(err.message || String(err));
     }
   }, []);
 
   const createRoom = () => {
-    const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
-    setRoomCode(randomCode);
-    setIsInRoom(true);
-    window.history.pushState({}, '', `?room=${randomCode}`);
+    try {
+      const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+      setRoomCode(randomCode);
+      setIsInRoom(true);
+      window.location.hash = `room=${randomCode}`;
+    } catch (err) {
+      setAppError(err.message);
+    }
   };
 
   const joinRoom = () => {
-    if (inputCode.trim() !== '') {
-      const code = inputCode.trim().toUpperCase();
-      setRoomCode(code);
-      setIsInRoom(true);
-      window.history.pushState({}, '', `?room=${code}`);
+    try {
+      if (inputCode.trim() !== '') {
+        const code = inputCode.trim().toUpperCase();
+        setRoomCode(code);
+        setIsInRoom(true);
+        window.location.hash = `room=${code}`;
+      }
+    } catch (err) {
+      setAppError(err.message);
     }
   };
 
@@ -47,16 +56,22 @@ export default function App() {
     setIsInRoom(false);
     setRoomCode('');
     setInputCode('');
-    window.history.pushState({}, '', window.location.pathname);
+    window.location.hash = '';
   };
 
-  if (hasError) {
+  // إذا حدث أي خطأ برمجي، سيظهر لك هنا مباشرة بدلاً من الشاشة البيضاء
+  if (appError) {
     return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4">
-        <div className="bg-red-800 p-6 rounded-xl text-center">
-          <h2 className="text-xl font-bold mb-2">عذراً، حدث خطأ في تحميل الغرفة</h2>
-          <button onClick={() => window.location.href = window.location.pathname} className="mt-4 bg-white text-gray-900 px-4 py-2 rounded-lg font-bold">
-            العودة للرئيسية
+      <div className="min-h-screen bg-red-950 text-white flex flex-col items-center justify-center p-4">
+        <div className="bg-red-900 border border-red-700 p-6 rounded-2xl max-w-md w-full text-center shadow-2xl">
+          <h2 className="text-xl font-bold mb-2">⚠️ حدث خطأ في التطبيق</h2>
+          <p className="bg-red-950 p-3 rounded font-mono text-sm text-red-300 break-all mb-4">
+            {appError}
+          </p>
+          <button 
+            onClick={() => window.location.href = window.location.pathname}
+            className="bg-white text-red-950 font-bold px-4 py-2 rounded-xl">
+            إعادة تحميل الصفحة
           </button>
         </div>
       </div>
