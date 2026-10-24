@@ -5,18 +5,19 @@ export default function App() {
   const [roomCode, setRoomCode] = useState('');
   const [inputCode, setInputCode] = useState('');
 
-  // قراءة كود الغرفة من الرابط بأمان عند الفتح المباشر
+  // قراءة كود الغرفة من الـ Hash بأمان تام لمنع الشاشة البيضاء
   useEffect(() => {
     try {
-      const params = new URLSearchParams(window.location.search);
-      const roomFromUrl = params.get('room');
-      
-      if (roomFromUrl) {
-        setRoomCode(roomFromUrl.toUpperCase());
-        setCurrentRoom('game');
+      const hash = window.location.hash;
+      if (hash && hash.includes('room=')) {
+        const roomFromHash = hash.split('room=')[1];
+        if (roomFromHash) {
+          setRoomCode(roomFromHash.toUpperCase());
+          setCurrentRoom('game');
+        }
       }
     } catch (error) {
-      console.error("Error reading room from URL:", error);
+      console.error("Error reading room from hash:", error);
     }
   }, []);
 
@@ -24,8 +25,7 @@ export default function App() {
     const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
     setRoomCode(randomCode);
     setCurrentRoom('game');
-    // تحديث الرابط في المتصفح بدون إعادة تحميل الصفحة
-    window.history.pushState({}, '', `?room=${randomCode}`);
+    window.location.hash = `room=${randomCode}`;
   };
 
   const joinRoom = () => {
@@ -33,7 +33,7 @@ export default function App() {
       const code = inputCode.toUpperCase();
       setRoomCode(code);
       setCurrentRoom('game');
-      window.history.pushState({}, '', `?room=${code}`);
+      window.location.hash = `room=${code}`;
     }
   };
 
@@ -41,7 +41,7 @@ export default function App() {
     setCurrentRoom('lobby');
     setRoomCode('');
     setInputCode('');
-    window.history.pushState({}, '', window.location.pathname);
+    window.location.hash = '';
   };
 
   return (
