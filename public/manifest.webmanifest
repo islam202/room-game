@@ -1,0 +1,20 @@
+{
+  "name": "خطفها — لعبة سرعة جماعية",
+  "short_name": "خطفها",
+  "description": "لعبة سرعة ورد فعل بالمصري، العبوا على جهاز واحد.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#183c30",
+  "theme_color": "#183c30",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
