@@ -4,8 +4,14 @@ import { io } from 'socket.io-client';
 import { questions } from './questions.js';
 
 const ROUND_LENGTH = 10;
+const ROOM_CATEGORIES = [
+  { name: 'رياضة', emoji: '⚽', description: 'كورة وألعاب ومنافسات' },
+  { name: 'معلومات عامة', emoji: '🧠', description: 'علوم وجغرافيا ومعلومات ممتعة' },
+  { name: 'فن', emoji: '🎭', description: 'سينما ومزيكا وفنون' },
+];
+const QUESTION_COUNTS = [10, 20, 30];
 const COUNTDOWN_MS = 3000;
-const REVEAL_MS = 1000;
+const REVEAL_MS = 1800;
 const MATCH_WAIT_MS = 15000;
 const MATCH_CONNECT_TIMEOUT_MS = 20000;
 const ROOM_COLORS = ['#e3ae45', '#c94e3d', '#78b985', '#70a7bc', '#a78bc2', '#e49b9b'];
@@ -33,8 +39,11 @@ function shuffle(items) {
   return result;
 }
 
-function createRound() {
-  return shuffle(questions).slice(0, ROUND_LENGTH).map((item) => {
+function createRound(category = null, questionCount = ROUND_LENGTH) {
+  const questionPool = category
+    ? questions.filter((question) => question.category === category)
+    : questions;
+  return shuffle(questionPool).slice(0, questionCount).map((item) => {
     const options = shuffle(item.options.map((text, originalIndex) => ({ text, originalIndex })));
     return {
       id: item.id,
@@ -94,6 +103,8 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
   const [name, setName] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [durationSeconds, setDurationSeconds] = useState(12);
+  const [category, setCategory] = useState(ROOM_CATEGORIES[0].name);
+  const [questionCount, setQuestionCount] = useState(ROUND_LENGTH);
   const [hostOffset, setHostOffset] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [responses, setResponses] = useState({});
@@ -357,7 +368,7 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
       commitRoom({
         hostId: id,
         code: 'عشوائي',
-        settings: { maxPlayers: 2, durationSeconds: 12 },
+        settings: { maxPlayers: 2, durationSeconds: 12, category: null, questionCount: ROUND_LENGTH },
         players: [{ id, name: hostName }],
         game: { phase: 'lobby' },
       });
@@ -607,7 +618,7 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
         const newRoom = {
           hostId: id,
           code: candidate,
-          settings: { maxPlayers, durationSeconds },
+          settings: { maxPlayers, durationSeconds, category, questionCount },
           players: [{ id, name: hostName }],
           game: { phase: 'lobby' },
         };
@@ -672,7 +683,10 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
 
   function startRound() {
     if (!isHost || !room || room.players.length < 2) return;
-    const shuffledRound = createRound();
+    const shuffledRound = createRound(
+      room.settings.category || null,
+      room.settings.questionCount || ROUND_LENGTH,
+    );
     answerIndicesRef.current = shuffledRound.map((question) => question.answerIndex);
     responsesRef.current = {};
     setResponses({});
@@ -845,6 +859,40 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
             </form>
           ) : (
             <>
+              <div className="room-choice-section">
+                <span className="room-choice-label">اختاروا قسم الأسئلة</span>
+                <div className="online-category-grid">
+                  {ROOM_CATEGORIES.map((option) => (
+                    <button
+                      className={`online-category-card ${category === option.name ? 'selected' : ''}`}
+                      key={option.name}
+                      type="button"
+                      aria-pressed={category === option.name}
+                      onClick={() => setCategory(option.name)}
+                    >
+                      <span className="online-category-emoji" aria-hidden="true">{option.emoji}</span>
+                      <strong>{option.name}</strong>
+                      <small>{option.description}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="room-choice-section">
+                <span className="room-choice-label">عدد الأسئلة</span>
+                <div className="question-count-picker">
+                  {QUESTION_COUNTS.map((count) => (
+                    <button
+                      className={`question-count-option ${questionCount === count ? 'selected' : ''}`}
+                      key={count}
+                      type="button"
+                      aria-pressed={questionCount === count}
+                      onClick={() => setQuestionCount(count)}
+                    >
+                      {count}<small>سؤال</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="online-settings">
                 <label>
                   <span>عدد اللاعبين</span>
@@ -922,7 +970,7 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
             ))}
           </div>
           <p className="setup-hint">
-            {room.settings.durationSeconds} ثانية لكل سؤال · ١٠ أسئلة · {isHost ? 'دوس ابدأ لما الكل يدخل' : 'مستنيين الماستر يبدأ الجولة'}
+            {room.settings.durationSeconds} ثانية لكل سؤال · {room.settings.questionCount || ROUND_LENGTH} سؤال · {room.settings.category || 'أسئلة متنوعة'} · {isHost ? 'دوس ابدأ لما الكل يدخل' : 'مستنيين الماستر يبدأ الجولة'}
           </p>
           {isHost ? (
             <button className="primary-button start-button" type="button" onClick={startRound} disabled={playerList.length < 2}>
@@ -978,6 +1026,12 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
     ? 'correct'
     : game.reveal?.wrongPlayerIds?.includes(playerId) ? 'wrong' : '';
 
+  const roundPoints = (playerId) => {
+    if (game.reveal?.wrongPlayerIds?.includes(playerId)) return -3;
+    const position = game.reveal?.correctPlayerIds?.indexOf(playerId) ?? -1;
+    return position < 0 ? 0 : ([10, 6, 4, 2][position] ?? 2);
+  };
+
   return (
     <main className="online-game-shell">
       <header className="online-game-header">
@@ -987,74 +1041,102 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
         <strong>{game.phase === 'countdown' ? 'استعدوا!' : `السؤال ${game.questionIndex + 1} / ${game.questions.length}`}</strong>
         <span className="online-room-chip">⚡ {roomCode}</span>
       </header>
-      {game.phase === 'countdown' ? (
-        <section className="countdown-stage">
-          <p>الماستر بدأ.. خليك جاهز!</p>
-          <div className="countdown-number">{Math.max(1, Math.ceil(remainingMs / 1000))}</div>
-          <span>كلنا هنبدأ سوا.. حضّر إيدك 👀</span>
-        </section>
-      ) : (
-        <>
-          <section className={`online-question-card ${game.phase === 'reveal' ? 'revealing' : ''}`}>
-            <div className="question-meta">
-              <span>{currentQuestion?.category}</span>
-              <span>{game.phase === 'question' ? `${game.durationSeconds} ثانية.. يلا!` : 'الإجابة الصح'}</span>
+      <div className="online-play-layout">
+        {game.phase === 'countdown' ? (
+          <section className="online-countdown-main">
+            <div className="countdown-stage">
+              <p>الماستر بدأ.. خليك جاهز!</p>
+              <div className="countdown-number">{Math.max(1, Math.ceil(remainingMs / 1000))}</div>
+              <span>كلنا هنبدأ سوا.. حضّر إيدك 👀</span>
             </div>
-            <div className="question-word">
-              <span>{currentQuestion?.emoji}</span>
-              <strong>{currentQuestion?.text}</strong>
-            </div>
-            {game.phase === 'question'
-              ? <div className="timer-track"><div className="timer-fill" style={{ width: `${progress}%` }} /></div>
-              : <div className="reveal-message"><strong>{game.reveal?.correctAnswer}</strong><span>{game.reveal?.winnerId ? `خطفها ${game.players.find((player) => player.id === game.reveal.winnerId)?.name} ⚡` : 'محدش لحقها المرة دي!'}</span></div>}
-            {isHost && game.phase === 'question' && (
-              <small className="host-response-count">{Object.keys(responses).length}/{game.players.length} جاوبوا</small>
-            )}
           </section>
-          <section className="online-answer-grid">
-            {currentQuestion?.options.map((option, index) => {
-              const selected = myAnswer === index;
-              const isCorrectAnswer = game.phase === 'reveal' && option === game.reveal?.correctAnswer;
-              const isMyWrong = game.phase === 'reveal' && selected && myRevealResponse === 'wrong';
-              const choiceClass = isMyWrong
-                ? 'answer-wrong'
-                : isCorrectAnswer
-                  ? 'answer-correct'
-                  : selected ? 'answer-selected' : '';
-              const marker = game.phase === 'reveal' && selected && myRevealResponse === 'correct'
-                ? '✓ صح'
-                : isMyWrong
-                  ? '✕ إجابتك غلط'
+        ) : (
+          <section className="online-round-main">
+            <section className={`online-question-card ${game.phase === 'reveal' ? 'revealing' : ''}`}>
+              <div className="question-meta">
+                <span>{currentQuestion?.category}</span>
+                <span>{game.phase === 'question' ? `${game.durationSeconds} ثانية.. يلا!` : 'الإجابة الصح'}</span>
+              </div>
+              <div className="question-word">
+                <span>{currentQuestion?.emoji}</span>
+                <strong>{currentQuestion?.text}</strong>
+              </div>
+              {game.phase === 'question'
+                ? <div className="timer-track"><div className="timer-fill" style={{ width: `${progress}%` }} /></div>
+                : <div className="reveal-message"><strong>{game.reveal?.correctAnswer}</strong><span>{game.reveal?.winnerId ? `خطفها ${game.players.find((player) => player.id === game.reveal.winnerId)?.name} ⚡` : 'محدش لحقها المرة دي!'}</span></div>}
+              {isHost && game.phase === 'question' && (
+                <small className="host-response-count">{Object.keys(responses).length}/{game.players.length} جاوبوا</small>
+              )}
+            </section>
+            <section className="online-answer-grid">
+              {currentQuestion?.options.map((option, index) => {
+                const selected = myAnswer === index;
+                const isCorrectAnswer = game.phase === 'reveal' && option === game.reveal?.correctAnswer;
+                const isMyWrong = game.phase === 'reveal' && selected && myRevealResponse === 'wrong';
+                const choiceClass = isMyWrong
+                  ? 'answer-wrong'
                   : isCorrectAnswer
-                    ? '✓ الصح'
-                    : selected ? 'اختيارك' : '';
-              return (
-                <button
-                  className={`online-answer-button ${choiceClass}`}
-                  key={`${currentQuestion.id}-${index}`}
-                  type="button"
-                  aria-pressed={selected}
-                  disabled={game.phase !== 'question' || myAnswer !== undefined}
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    submitAnswer(index);
-                  }}
-                >
-                  <span className="option-letter">{['أ', 'ب', 'ج', 'د'][index]}</span>
-                  <span>{option}</span>
-                  {marker && <span className="answer-marker">{marker}</span>}
-                </button>
-              );
-            })}
+                    ? 'answer-correct'
+                    : selected ? 'answer-selected' : '';
+                const marker = game.phase === 'reveal' && selected && myRevealResponse === 'correct'
+                  ? '✓ صح'
+                  : isMyWrong
+                    ? '✕ إجابتك غلط'
+                    : isCorrectAnswer
+                      ? '✓ الصح'
+                      : selected ? 'اختيارك' : '';
+                return (
+                  <button
+                    className={`online-answer-button ${choiceClass}`}
+                    key={`${currentQuestion.id}-${index}`}
+                    type="button"
+                    aria-pressed={selected}
+                    disabled={game.phase !== 'question' || myAnswer !== undefined}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      submitAnswer(index);
+                    }}
+                  >
+                    <span className="option-letter">{['أ', 'ب', 'ج', 'د'][index]}</span>
+                    <span>{option}</span>
+                    {marker && <span className="answer-marker">{marker}</span>}
+                  </button>
+                );
+              })}
+            </section>
+            <div className="online-game-footer">
+              <span>{game.players.length} لاعبين في الجولة</span>
+              {myAnswer !== undefined && game.phase === 'question' && <strong>اختيارك متحدد.. النتيجة بعد ما السؤال يخلص!</strong>}
+              {myRevealResponse === 'correct' && <strong>إجابتك صح.. عاش! ⚡</strong>}
+              {myRevealResponse === 'wrong' && <strong>معلش، المرة الجاية تخطفها!</strong>}
+            </div>
           </section>
-          <div className="online-game-footer">
-            <span>{game.players.length} لاعبين في الجولة</span>
-            {myAnswer !== undefined && game.phase === 'question' && <strong>اختيارك متحدد.. النتيجة بعد ما السؤال يخلص!</strong>}
-            {myRevealResponse === 'correct' && <strong>إجابتك صح.. عاش! ⚡</strong>}
-            {myRevealResponse === 'wrong' && <strong>معلش، المرة الجاية تخطفها!</strong>}
+        )}
+        <aside className="online-side-ranking" aria-live="polite">
+          <div className="side-ranking-heading">
+            <span className="side-ranking-title">{game.phase === 'reveal' ? 'نتيجة السؤال' : 'ترتيب اللاعبين'}</span>
+            {game.phase === 'reveal' && <span className="side-ranking-caption">نقاط الجولة والمجموع</span>}
           </div>
-        </>
-      )}
+          {leaderboard.map((player, index) => {
+            const points = roundPoints(player.id);
+            return (
+              <div className={`side-ranking-item ${index === 0 ? 'side-ranking-leader' : ''}`} key={player.id}>
+                <span className="side-ranking-place">{['🥇', '🥈', '🥉'][index] || `${index + 1}.`}</span>
+                <span className="side-ranking-name">
+                  {player.name}
+                  {player.id === playerId && <small className="online-you-label">إنت</small>}
+                </span>
+                {game.phase === 'reveal' && (
+                  <span className={`side-ranking-change ${points > 0 ? 'points-gained' : points < 0 ? 'points-lost' : ''}`}>
+                    {points > 0 ? `+${points}` : points}
+                  </span>
+                )}
+                <span className="side-ranking-score">{game.scores[player.id] ?? 0}<small>نقطة</small></span>
+              </div>
+            );
+          })}
+        </aside>
+      </div>
       {error && <div className="toast" role="alert">{error}</div>}
     </main>
   );
