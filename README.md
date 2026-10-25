@@ -108,7 +108,17 @@ npm run preview
 
 ### GitHub Pages
 
-استخدم GitHub Actions لتشغيل `npm ci` وبعدها `npm run build` ونشر محتوى `dist/`، وانشر `server/` كخدمة Node.js منفصلة واضبط متغيرات البيئة المذكورة فوق. إعداد `base: './'` في Vite بيدعم النشر داخل مسار المستودع. تثبيت PWA محتاج HTTPS.
+GitHub Pages بيستضيف ملفات الواجهة الثابتة بس، ومابيقدرش يشغّل خادم Node.js. عشان المطابقة العشوائية تشتغل:
+
+1. انشر التطبيق على Render كـ **Web Service** من نفس المستودع. استخدم `npm ci` كأمر البناء و`npm run dev:server` كأمر التشغيل.
+2. أضف متغير البيئة `MATCHMAKING_ALLOWED_ORIGINS` في إعدادات خدمة Render. للرابط الافتراضي للمستودع ده، قيمته `https://islam202.github.io` فقط (من غير `/room-game/`). لو عندك نطاق مخصص، استخدم الـ origin بتاعه بدلًا منه.
+3. بعد نشر الخدمة، انسخ رابطها مثل `https://khotafha-matchmaking.onrender.com`.
+4. في GitHub افتح **Settings → Secrets and variables → Actions → Variables**، وأضف متغيرًا اسمه `VITE_MATCHMAKING_URL` وقيمته رابط خدمة Render.
+5. شغّل GitHub Actions للنشر من جديد، إما بعمل push إلى `main` أو من تبويب **Actions → Run workflow**.
+
+ملف `.github/workflows/deploy.yml` يمرر `VITE_MATCHMAKING_URL` لخطوة البناء. الواجهة تقرأه أثناء البناء، لذلك إضافة الرابط بعد آخر نشر تتطلب إعادة تشغيل النشر. إعداد `base: './'` في Vite بيدعم النشر داخل مسار المستودع. تثبيت PWA محتاج HTTPS.
+
+قد تدخل خدمة Render المجانية في وضع السكون بعد فترة من عدم الاستخدام؛ أول اتصال بعدها ممكن يتأخر أو يفشل، وفي الحالة دي جرّب البحث مرة أخرى أو استخدم استضافة لا توقف الخدمة.
 
 ## الأوفلاين وPWA
 

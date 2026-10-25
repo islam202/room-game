@@ -25,13 +25,12 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: |
-          rm -f package-lock.json
-          rm -rf node_modules
-          npm install
+        run: npm ci
 
       - name: Build
         run: npm run build
+        env:
+          VITE_MATCHMAKING_URL: ${{ vars.VITE_MATCHMAKING_URL }}
 
       - uses: actions/configure-pages@v5
 
