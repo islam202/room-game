@@ -87,6 +87,12 @@ function getTitle(rank, total) {
   return 'خاطف على قدّه';
 }
 
+function getRoundPoints(playerId, reveal) {
+  if (reveal?.wrongPlayerIds.includes(playerId)) return -3;
+  const correctPosition = reveal?.correctPlayerIds.indexOf(playerId) ?? -1;
+  return correctPosition < 0 ? 0 : ([10, 6, 4, 2][correctPosition] ?? 2);
+}
+
 function App() {
   const savedPlayers = useMemo(readSavedPlayers, []);
   const [state, dispatch] = useReducer(gameReducer, savedPlayers, createInitialState);
@@ -144,11 +150,49 @@ function App() {
     (state.scores[b.id] ?? 0) - (state.scores[a.id] ?? 0)
   )), [state.players, state.scores]);
 
+  useEffect(() => {
+    if (state.phase !== 'question' || !currentQuestion) return;
+    const hasHuman = state.players.some((p) => p.name !== 'الكمبيوتر');
+    if (!hasHuman) return;
+    const computer = state.players.find((p) => p.name === 'الكمبيوتر');
+    if (!computer || state.responses[computer.id]) return;
+    if (computer.name !== 'الكمبيوتر') return;
+    const delay = 800 + Math.random() * 2000;
+    const timer = setTimeout(() => {
+      if (state.phase !== 'question' || state.responses[computer.id] || state.deadline === null) return;
+      const pressedAt = Math.min(performance.now(), state.deadline - 50);
+      if (pressedAt >= state.deadline) return;
+      const chance = Math.random();
+      let optionIndex;
+      if (chance < 0.4) {
+        optionIndex = currentQuestion.correctIndex;
+      } else {
+        const wrongOptions = [0, 1, 2, 3].filter((i) => i !== currentQuestion.correctIndex);
+        optionIndex = wrongOptions[Math.floor(Math.random() * wrongOptions.length)];
+      }
+      playTone(optionIndex === currentQuestion.correctIndex ? 'good' : 'bad', muted);
+      dispatch({ type: 'ANSWER', playerId: computer.id, optionIndex, pressedAt });
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [state.phase, state.questionIndex, currentQuestion, state.players, state.responses, muted]);
+
   function startRound(players = draftPlayers, durationSeconds = questionDurationSeconds) {
-    const preparedPlayers = players.map((player, index) => ({
+    let preparedPlayers = players.map((player, index) => ({
       id: `p${index + 1}`,
       name: player.name.trim().slice(0, 12) || `لاعب ${index + 1}`,
     }));
+    if (preparedPlayers.length === 1) {
+      preparedPlayers = [
+        ...preparedPlayers,
+        { id: 'p2', name: 'الكمبيوتر' },
+      ];
+    }
+    if (preparedPlayers.length < 2) {
+      preparedPlayers = [
+        { id: 'p1', name: 'لاعب ١' },
+        { id: 'p2', name: 'الكمبيوتر' },
+      ];
+    }
     try {
       localStorage.setItem('khotafha-players', JSON.stringify(preparedPlayers));
     } catch (error) {
@@ -245,7 +289,29 @@ function App() {
   if (page === 'online') {
     return (
       <Suspense fallback={<main className="setup-shell"><p className="setup-hint">بنفتح باب الغرفة…</p></main>}>
-        <OnlineRoom onBack={() => setPage('home')} />
+        <OnlineRoom
+          initialMode="rooms"
+          onBack={() => setPage('home')}
+          onFallbackComputer={(playerName) => startRound([
+            { id: 'p1', name: playerName },
+            { id: 'p2', name: 'الكمبيوتر' },
+          ])}
+        />
+      </Suspense>
+    );
+  }
+
+  if (page === 'random-match') {
+    return (
+      <Suspense fallback={<main className="setup-shell"><p className="setup-hint">بنفتح باب المطابقة…</p></main>}>
+        <OnlineRoom
+          initialMode="matchmaking"
+          onBack={() => setPage('home')}
+          onFallbackComputer={(playerName) => startRound([
+            { id: 'p1', name: playerName },
+            { id: 'p2', name: 'الكمبيوتر' },
+          ])}
+        />
       </Suspense>
     );
   }
@@ -266,14 +332,17 @@ function App() {
           <p>أول ما السؤال يظهر.. اخطف الإجابة الصح قبل الباقيين!</p>
           <div className="hero-emoji" aria-hidden="true">🫖 ⚡ 🛺</div>
           <div className="home-actions">
-            <button className="primary-button" type="button" onClick={() => setPage('setup')}>
-              العب على جهاز واحد <span aria-hidden="true">←</span>
+            <button className="primary-button" type="button" onClick={() => setPage('random-match')}>
+              العب عشوائي أونلاين <span aria-hidden="true">⚡</span>
+            </button>
+            <button className="secondary-button" type="button" onClick={() => startRound([{ id: 'p1', name: 'لاعب ١' }, { id: 'p2', name: 'الكمبيوتر' }])}>
+              العب مع الكمبيوتر <span aria-hidden="true">←</span>
             </button>
             <button className="secondary-button" type="button" onClick={() => setPage('online')}>
-              العب أونلاين <span className="coming-soon">غرفة أصحاب</span>
+              العب مع أصحابك <span className="coming-soon">غرفة خاصة</span>
             </button>
           </div>
-          <div className="hero-meta"><span>٢ لـ ٦ لاعبين</span><span>١٠ أسئلة سريعة</span><span>مفيش تسجيل</span></div>
+          <div className="hero-meta"><span>مطابقة عشوائية</span><span>١٠ أسئلة سريعة</span><span>مفيش تسجيل</span></div>
         </section>
         <footer className="home-footer">قعدة أصحاب.. وخطفة من غير زعل 💛</footer>
       </main>
@@ -342,7 +411,8 @@ function App() {
     );
   }
 
-  if (state.phase === 'results') {
+   if (state.phase === 'results') {
+    const vsComputer = state.players.length === 2 && state.players.some((p) => p.name === 'الكمبيوتر');
     return (
       <main className="results-shell">
         <header className="topbar">
@@ -365,20 +435,108 @@ function App() {
             ))}
           </div>
           <div className="results-actions">
-            <button className="primary-button" type="button" onClick={() => startRound(state.players)}>جولة تانية <span>↻</span></button>
+            {vsComputer ? (
+              <button className="primary-button" type="button" onClick={() => startRound([{ id: 'p1', name: 'لاعب ١' }, { id: 'p2', name: 'الكمبيوتر' }])}>جولة تانية <span>↻</span></button>
+            ) : (
+              <button className="primary-button" type="button" onClick={() => startRound(state.players)}>جولة تانية <span>↻</span></button>
+            )}
             <button className="secondary-button" type="button" onClick={shareResults}>شارك نتيجتك <span>↗</span></button>
           </div>
-          <button className="text-button" type="button" onClick={backToSetup}>غيّر اللاعبين</button>
+          {vsComputer ? (
+            <button className="text-button" type="button" onClick={() => setPage('home')}>ارجع للصفحة الرئيسية</button>
+          ) : (
+            <button className="text-button" type="button" onClick={backToSetup}>غيّر اللاعبين</button>
+          )}
         </section>
         {notice && <div className="toast" role="status">{notice}</div>}
       </main>
     );
   }
 
-  const remaining = state.deadline === null ? 0 : Math.max(0, state.deadline - clockNow);
+   const remaining = state.deadline === null ? 0 : Math.max(0, state.deadline - clockNow);
   const questionProgress = state.phase === 'question' ? (remaining / state.durationMs) * 100 : 0;
   const countdownNumber = Math.max(1, Math.ceil(remaining / 1000));
   const currentResponses = Object.keys(state.responses).length;
+  const vsComputer = state.players.length === 2 && state.players.some((p) => p.name === 'الكمبيوتر');
+  const miniRanking = [...state.players].sort((a,b) => (state.scores[b.id]??0)-(state.scores[a.id]??0));
+
+  if (vsComputer) {
+    return (
+      <main className="game-shell computer-mode">
+        <header className="game-topbar">
+          <button className="back-button game-back" type="button" onClick={() => { dispatch({ type: 'RETURN_TO_SETUP', players: [] }); setPage('home'); }}>← الرئيسية</button>
+          <div className="round-counter">{state.phase === 'countdown' ? 'استعدوا!' : `السؤال ${state.questionIndex + 1} / ${QUESTION_COUNT}`}</div>
+          <button className="sound-toggle game-sound" type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? 'شغّل الصوت' : 'اكتم الصوت'}>
+            {muted ? '🔇' : '🔊'}
+          </button>
+        </header>
+        {state.phase === 'countdown' ? (
+          <section className="countdown-stage" aria-live="assertive">
+            <p>خلي إيدك جاهزة!</p>
+            <div className="countdown-number">{countdownNumber}</div>
+            <span>ممنوع الخطف قبل ما السؤال يظهر 👀</span>
+          </section>
+        ) : (
+          <section className="computer-play-layout">
+            <section className={`question-stage ${state.phase === 'reveal' ? 'revealing' : ''}`}>
+              <div className="question-meta">
+                <span>{currentQuestion?.category}</span>
+                <span>{state.phase === 'question' ? 'دورك.. جاوب بسرعة!' : 'الإجابة كانت'}</span>
+              </div>
+              <div className="question-word" key={currentQuestion?.id}>
+                <strong>{currentQuestion?.text}</strong>
+              </div>
+              {state.phase === 'question' ? (
+                <div className="timer-track" role="progressbar" aria-label="الوقت المتبقي" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(questionProgress)}>
+                  <div className="timer-fill" style={{ width: `${questionProgress}%` }} />
+                </div>
+              ) : (
+                <div className="reveal-message" aria-live="polite">
+                  <strong>{state.reveal?.correctAnswer}</strong>
+                  {state.reveal?.winnerId
+                    ? <span>خطفها {state.players.find((player) => player.id === state.reveal.winnerId)?.name} ⚡</span>
+                    : <span>محدش لحقها المرة دي!</span>}
+                </div>
+              )}
+            </section>
+            <aside className="side-ranking" aria-live="polite">
+              <div className="side-ranking-heading">
+                <span className="side-ranking-title">{state.phase === 'reveal' ? 'نتيجة السؤال' : 'الترتيب'}</span>
+                {state.phase === 'reveal' && <span className="side-ranking-caption">النقاط المضافة للجولة</span>}
+              </div>
+              {miniRanking.map((player, index) => {
+                const roundPoints = getRoundPoints(player.id, state.reveal);
+                return (
+                  <div className={`side-ranking-item ${index === 0 ? 'side-ranking-leader' : ''}`} key={player.id}>
+                    <span className="side-ranking-place">{['🥇', '🥈'][index] || `${index + 1}.`}</span>
+                    <span className="side-ranking-name">{player.name}</span>
+                    {state.phase === 'reveal' && (
+                      <span className={`side-ranking-change ${roundPoints > 0 ? 'points-gained' : roundPoints < 0 ? 'points-lost' : ''}`}>
+                        {roundPoints > 0 ? `+${roundPoints}` : roundPoints}
+                      </span>
+                    )}
+                    <span className="side-ranking-score">{state.scores[player.id] ?? 0}<small>نقطة</small></span>
+                  </div>
+                );
+              })}
+            </aside>
+            <PlayerPad
+              className="computer-player-pad"
+              player={state.players[0]}
+              index={0}
+              question={currentQuestion}
+              response={state.responses[state.players[0].id]}
+              revealed={state.phase === 'reveal'}
+              score={state.scores[state.players[0].id] ?? 0}
+              disabled={state.phase !== 'question'}
+              onAnswer={(optionIndex, pressedAt) => answer(state.players[0], optionIndex, pressedAt)}
+            />
+          </section>
+        )}
+        {notice && <div className="toast" role="status">{notice}</div>}
+      </main>
+    );
+  }
 
   return (
     <main className={`game-shell ${state.players.length === 2 ? 'duel-mode' : 'crowd-mode'}`}>
@@ -404,7 +562,6 @@ function App() {
               <span>{state.phase === 'question' ? `جاوبوا بسرعة.. ${currentResponses}/${state.players.length}` : 'الإجابة كانت'}</span>
             </div>
             <div className="question-word" key={currentQuestion?.id}>
-              {state.phase === 'reveal' ? currentQuestion?.emoji : currentQuestion?.emoji}
               <strong>{currentQuestion?.text}</strong>
             </div>
             {state.phase === 'question' ? (
@@ -412,12 +569,19 @@ function App() {
                 <div className="timer-fill" style={{ width: `${questionProgress}%` }} />
               </div>
             ) : (
-              <div className="reveal-message" aria-live="polite">
-                <strong>{state.reveal?.correctAnswer}</strong>
-                {state.reveal?.winnerId
-                  ? <span>خطفها {state.players.find((player) => player.id === state.reveal.winnerId)?.name} ⚡</span>
-                  : <span>محدش لحقها المرة دي!</span>}
-              </div>
+              <>
+                <div className="reveal-message" aria-live="polite">
+                  <strong>{state.reveal?.correctAnswer}</strong>
+                  {state.reveal?.winnerId
+                    ? <span>خطفها {state.players.find((player) => player.id === state.reveal.winnerId)?.name} ⚡</span>
+                    : <span>محدش لحقها المرة دي!</span>}
+                </div>
+                <div className="mini-ranking">
+                  {miniRanking.slice(0,4).map((p,idx) => (
+                    <span key={p.id} className="mini-rank-item">{idx===0?'🥇':idx===1?'🥈':idx===2?'🥉':'•'} {p.name} {state.scores[p.id]??0}</span>
+                  ))}
+                </div>
+              </>
             )}
           </section>
 
@@ -434,6 +598,7 @@ function App() {
                   score={state.scores[player.id] ?? 0}
                   disabled={state.phase !== 'question'}
                   onAnswer={(optionIndex, pressedAt) => answer(player, optionIndex, pressedAt)}
+                  flip={false}
                 />
               ))}
             </section>
@@ -450,6 +615,7 @@ function App() {
                   score={state.scores[player.id] ?? 0}
                   disabled={state.phase !== 'question'}
                   onAnswer={(optionIndex, pressedAt) => answer(player, optionIndex, pressedAt)}
+                  flip={false}
                 />
               ))}
             </section>
@@ -461,11 +627,11 @@ function App() {
   );
 }
 
-function PlayerPad({ player, index, question, response, revealed, score, disabled, onAnswer }) {
+function PlayerPad({ className = '', player, index, question, response, revealed, score, disabled, onAnswer, flip = false }) {
   const palette = playerColors[index];
   return (
     <section
-      className={`player-pad player-${index + 1} ${response ? (response.correct ? 'player-correct' : 'player-wrong') : ''} ${disabled ? 'pad-disabled' : ''}`}
+      className={`player-pad ${className} player-${index + 1} ${response ? (response.correct ? 'player-correct' : 'player-wrong') : ''} ${disabled ? 'pad-disabled' : ''} ${flip ? 'player-pad-flip' : ''}`}
       style={{ '--player-color': palette.color, '--player-ink': palette.dark }}
       aria-label={`إجابات ${player.name}`}
     >

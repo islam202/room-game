@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Peer from 'peerjs';
+import { io } from 'socket.io-client';
 import { questions } from './questions.js';
 
 const ROUND_LENGTH = 10;
 const COUNTDOWN_MS = 3000;
 const REVEAL_MS = 1000;
+const MATCH_WAIT_MS = 15000;
+const MATCH_CONNECT_TIMEOUT_MS = 20000;
 const ROOM_COLORS = ['#e3ae45', '#c94e3d', '#78b985', '#70a7bc', '#a78bc2', '#e49b9b'];
+const MATCHMAKING_URL = import.meta.env.VITE_MATCHMAKING_URL
+  || (import.meta.env.DEV ? 'http://localhost:3001' : '');
 const PEER_OPTIONS = {
   host: '0.peerjs.com',
   port: 443,
@@ -77,8 +82,9 @@ function createPeerId(code) {
   return `khotafha-${code}`;
 }
 
-function OnlineRoom({ onBack }) {
+function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
   const initialCode = new URLSearchParams(window.location.search).get('room') || '';
+  const isMatchmaking = initialMode === 'matchmaking';
   const [roomCode, setRoomCode] = useState(initialCode.replace(/\D/g, '').slice(0, 4));
   const [room, setRoom] = useState(null);
   const [playerId, setPlayerId] = useState('');
@@ -100,6 +106,10 @@ function OnlineRoom({ onBack }) {
   const responsesRef = useRef({});
   const submitLockRef = useRef(false);
   const transitionKeyRef = useRef('');
+  const matchSocketRef = useRef(null);
+  const matchDetailsRef = useRef(null);
+  const matchTimeoutRef = useRef(null);
+  const randomMatchRef = useRef(false);
 
   const isHost = Boolean(room && playerId && room.hostId === playerId);
   const game = room?.game;
@@ -167,6 +177,10 @@ function OnlineRoom({ onBack }) {
           sendToConnection(connection, { type: 'reject', text: 'الغرفة كملت عددها.' });
           connection.close();
           return;
+        }
+        if (randomMatchRef.current && matchTimeoutRef.current) {
+          window.clearTimeout(matchTimeoutRef.current);
+          matchTimeoutRef.current = null;
         }
         const nextRoom = alreadyJoined
           ? currentRoom
@@ -251,6 +265,9 @@ function OnlineRoom({ onBack }) {
         setError(message.text || 'الماستر رفض دخول الغرفة.');
         connection.close();
       } else if (message.type === 'welcome') {
+        if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current);
+        matchTimeoutRef.current = null;
+        setBusy(false);
         setPlayerId(message.playerId);
         setHostOffset(message.hostNow - Date.now());
         commitRoom(message.room);
@@ -302,7 +319,166 @@ function OnlineRoom({ onBack }) {
     peerRef.current = null;
   }
 
+  function closeMatchmaking() {
+    if (matchTimeoutRef.current) {
+      window.clearTimeout(matchTimeoutRef.current);
+      matchTimeoutRef.current = null;
+    }
+    const socket = matchSocketRef.current;
+    matchSocketRef.current = null;
+    matchDetailsRef.current = null;
+    randomMatchRef.current = false;
+    if (socket) {
+      socket.emit('matchmaking:cancel');
+      socket.disconnect();
+    }
+  }
+
+  function fallBackToComputer(playerName) {
+    closeMatchmaking();
+    destroyPeer();
+    onFallbackComputer(playerName.trim().slice(0, 12) || 'لاعب ١');
+  }
+
+  async function createRandomMatchHost(match, hostName) {
+    const peer = new Peer(match.peerId, PEER_OPTIONS);
+    peerRef.current = peer;
+    listenAsHost(peer);
+    try {
+      const id = await waitForPeerOpen(peer);
+      setRoomCode('عشوائي');
+      setBusy(false);
+      setPlayerId(id);
+      answerIndicesRef.current = [];
+      transitionKeyRef.current = '';
+      commitRoom({
+        hostId: id,
+        code: 'عشوائي',
+        settings: { maxPlayers: 2, durationSeconds: 12 },
+        players: [{ id, name: hostName }],
+        game: { phase: 'lobby' },
+      });
+      matchSocketRef.current?.emit('matchmaking:host-ready');
+    } catch (peerError) {
+      peer.destroy();
+      peerRef.current = null;
+      setBusy(false);
+      setError(`مش قادرين نجهّز الاتصال باللاعب: ${peerErrorText(peerError)}`);
+      closeMatchmaking();
+    }
+  }
+
+  async function connectRandomMatchGuest(guestName, peerId) {
+    const peer = new Peer(undefined, PEER_OPTIONS);
+    peerRef.current = peer;
+    try {
+      await waitForPeerOpen(peer);
+      const connection = peer.connect(peerId, { reliable: true });
+      listenAsGuest(peer, connection, guestName);
+      const timeoutId = window.setTimeout(() => {
+        if (!roomRef.current) {
+          setBusy(false);
+          setError('الاتصال باللاعب ما اكتملش. جرّب تاني أو العب مع الكمبيوتر.');
+        }
+      }, 18000);
+      connection.on('open', () => {
+        window.clearTimeout(timeoutId);
+        matchSocketRef.current?.emit('matchmaking:peer-connected');
+        setRoomCode('عشوائي');
+        window.history.replaceState({}, '', window.location.pathname);
+      });
+      connection.on('close', () => window.clearTimeout(timeoutId));
+    } catch (peerError) {
+      peer.destroy();
+      peerRef.current = null;
+      setBusy(false);
+      setError(`مش قادرين نوصل للاعب: ${peerErrorText(peerError)}`);
+      closeMatchmaking();
+    }
+  }
+
+  function findRandomMatch() {
+    const playerName = name.trim().slice(0, 12);
+    if (!playerName) {
+      setError('اكتب اسمك الأول، لحد ١٢ حرف.');
+      return;
+    }
+    if (!MATCHMAKING_URL) {
+      setError('خدمة المطابقة العشوائية مش متوصلة بالموقع. العب مع الكمبيوتر دلوقتي.');
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    setNotice('بنوصل بخدمة المطابقة…');
+    const socket = io(MATCHMAKING_URL, {
+      autoConnect: false,
+      reconnection: false,
+      timeout: 5000,
+    });
+    matchSocketRef.current = socket;
+
+    socket.on('connect', () => {
+      socket.emit('matchmaking:join', { name: playerName }, (result) => {
+        if (!result?.ok) {
+          setBusy(false);
+          setError(result?.error || 'مش قادرين ندخلك طابور المطابقة.');
+          closeMatchmaking();
+          return;
+        }
+        if (result.status === 'waiting') {
+          setNotice('بندورلك على لاعب… لو محدش دخل خلال ١٥ ثانية هنبدأ مع الكمبيوتر.');
+          matchTimeoutRef.current = window.setTimeout(
+            () => fallBackToComputer(playerName),
+            MATCH_WAIT_MS,
+          );
+        }
+      });
+    });
+    socket.on('connect_error', () => {
+      setBusy(false);
+      setError('خدمة المطابقة مش متاحة دلوقتي. جرّب مع الكمبيوتر أو اتأكد من اتصال الخادم.');
+      closeMatchmaking();
+    });
+    socket.on('matchmaking:matched', (match) => {
+      if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current);
+      matchDetailsRef.current = match;
+      randomMatchRef.current = true;
+      setNotice(`لقينا لاعب ${match.opponentName}.. بنجهز الجولة!`);
+      matchTimeoutRef.current = window.setTimeout(
+        () => fallBackToComputer(playerName),
+        MATCH_CONNECT_TIMEOUT_MS,
+      );
+      if (match.role === 'host') {
+        createRandomMatchHost(match, playerName);
+      }
+    });
+    socket.on('matchmaking:host-ready', ({ peerId }) => {
+      const match = matchDetailsRef.current;
+      if (match?.role === 'guest' && typeof peerId === 'string') {
+        connectRandomMatchGuest(playerName, peerId);
+      }
+    });
+    socket.on('matchmaking:peer-left', () => {
+      destroyPeer();
+      roomRef.current = null;
+      commitRoom(null);
+      setPlayerId('');
+      setRoomCode('');
+      setBusy(false);
+      setError('اللاعب خرج قبل ما تبدأ الجولة. جرّب تاني أو العب مع الكمبيوتر.');
+      closeMatchmaking();
+    });
+    socket.on('matchmaking:error', (message) => {
+      setBusy(false);
+      setError(message || 'حصلت مشكلة في المطابقة.');
+    });
+    socket.connect();
+  }
+
   useEffect(() => () => {
+    if (matchTimeoutRef.current) window.clearTimeout(matchTimeoutRef.current);
+    matchSocketRef.current?.disconnect();
     connectionsRef.current.forEach((connection) => connection.close());
     guestConnectionRef.current?.close();
     peerRef.current?.destroy();
@@ -311,6 +487,11 @@ function OnlineRoom({ onBack }) {
   useEffect(() => {
     if (!room || !isHost) return;
     broadcastRoom(room);
+  }, [room, isHost]);
+
+  useEffect(() => {
+    if (!room || !randomMatchRef.current || !isHost || room.game?.phase !== 'lobby' || room.players.length < 2) return;
+    startRound();
   }, [room, isHost]);
 
   useEffect(() => {
@@ -550,6 +731,7 @@ function OnlineRoom({ onBack }) {
       sendToConnection(guestConnectionRef.current, { type: 'leave' });
     }
     destroyPeer();
+    closeMatchmaking();
     roomRef.current = null;
     setRoom(null);
     setPlayerId('');
@@ -563,6 +745,7 @@ function OnlineRoom({ onBack }) {
   function closeRoomAfterGame() {
     connectionsRef.current.forEach((connection) => sendToConnection(connection, { type: 'closed' }));
     destroyPeer();
+    closeMatchmaking();
     roomRef.current = null;
     setRoom(null);
     setPlayerId('');
@@ -603,14 +786,40 @@ function OnlineRoom({ onBack }) {
           <span className="brand-name">غرفة خطفها</span>
         </header>
         <section className="setup-panel">
-          <div className="section-kicker">{initialCode ? 'وصلك لينك دعوة؟' : 'اللعب أونلاين مع صحابك'}</div>
-          <h1>{initialCode ? 'اكتب اسمك وادخل' : 'اعملوا غرفة والعبوا سوا'}</h1>
+          <div className="section-kicker">
+            {isMatchmaking ? 'تحدّي عشوائي' : initialCode ? 'وصلك لينك دعوة؟' : 'اللعب أونلاين مع صحابك'}
+          </div>
+          <h1>
+            {isMatchmaking
+              ? 'ندورلك على لاعب'
+              : initialCode ? 'اكتب اسمك وادخل' : 'اعملوا غرفة والعبوا سوا'}
+          </h1>
           <label className="name-field online-name">
             <span>اسمك</span>
-            <input maxLength={12} value={name} onChange={(event) => setName(event.target.value)} placeholder="اسم من ١٢ حرف" />
+            <input maxLength={12} value={name} onChange={(event) => setName(event.target.value)} placeholder="اسم من ١٢ حرف" disabled={busy} />
             <small>{name.length}/12</small>
           </label>
-          {initialCode ? (
+          {isMatchmaking ? (
+            <>
+              <button className="primary-button start-button" type="button" onClick={findRandomMatch} disabled={busy}>
+                {busy ? 'بندورلك على لاعب…' : 'ابدأ البحث عن لاعب عشوائي ⚡'}
+              </button>
+              {busy && (
+                <div className="waiting-badge" aria-live="polite">
+                  {notice || 'لو محدش دخل خلال ١٥ ثانية هنبدأ مع الكمبيوتر.'}
+                </div>
+              )}
+              {!busy && error && (
+                <button
+                  className="secondary-button start-button"
+                  type="button"
+                  onClick={() => fallBackToComputer(name)}
+                >
+                  العب مع الكمبيوتر بدل كده
+                </button>
+              )}
+            </>
+          ) : initialCode ? (
             <form onSubmit={joinRoom} className="online-form">
               <label className="name-field online-name">
                 <span>كود الغرفة</span>
@@ -663,7 +872,12 @@ function OnlineRoom({ onBack }) {
               </form>
             </>
           )}
-          <p className="setup-hint">مش محتاج Firebase ولا مفاتيح. الغرف بتستخدم خدمة اتصال عامة.</p>
+          <p className="setup-hint">
+            {isMatchmaking
+              ? 'هنستنى لاعب واحد لمدة ١٥ ثانية، وبعدها نبدأ جولة مع الكمبيوتر تلقائيًا.'
+              : 'مش محتاج Firebase ولا مفاتيح. الغرف بتستخدم خدمة اتصال عامة.'}
+          </p>
+          {notice && !busy && <p className="inline-note" role="status">{notice}</p>}
           {error && <p className="inline-note" role="alert">{error}</p>}
         </section>
       </main>

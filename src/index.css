@@ -361,13 +361,28 @@ button {
   min-height: 500px;
   flex-direction: column;
   overflow: hidden;
-  padding: max(5px, env(safe-area-inset-top)) max(7px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(7px, env(safe-area-inset-left));
+  padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   color: #fff6df;
   background:
     radial-gradient(ellipse at 50% 45%, rgba(59, 96, 69, .55), transparent 60%),
     #183c30;
   touch-action: none;
   user-select: none;
+}
+
+.computer-play-layout {
+  display: grid;
+  width: min(100%, 1100px);
+  min-height: 0;
+  flex: 1;
+  grid-template-areas:
+    "ranking question"
+    "ranking answers";
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: minmax(135px, auto) minmax(0, 1fr);
+  gap: 12px;
+  align-self: center;
+  margin: 0 auto;
 }
 
 .game-topbar {
@@ -394,11 +409,13 @@ button {
   font-weight: 800;
 }
 
-.game-sound {
-  min-width: 34px;
-  min-height: 34px;
-  border: 0;
+.game-back {
+  min-width: auto;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 246, 223, .2);
   background: #294f40;
+  color: #f9edca;
+  font-size: 11px;
 }
 
 .question-stage {
@@ -478,54 +495,166 @@ button {
   font-weight: 900;
 }
 
-.reveal-message span {
+.computer-play-layout .question-stage {
+  width: 100%;
+  min-height: 135px;
+  grid-area: question;
+  margin: 0;
+}
+
+.computer-play-layout > .player-pad {
+  min-height: 0;
+  grid-area: answers;
+}
+
+.computer-mode .side-ranking {
+  grid-area: ranking;
+  align-self: stretch;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(227, 174, 69, .45);
+  border-radius: 20px;
+  background: linear-gradient(155deg, rgba(39, 76, 58, .96), rgba(10, 32, 24, .84));
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .12);
+}
+
+.side-ranking-heading {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255, 246, 223, .15);
+  text-align: center;
+}
+
+.side-ranking-caption {
+  color: #c9d1bd;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.side-ranking-item {
+  display: grid;
+  min-height: 52px;
+  grid-template-areas:
+    "place name change"
+    "place score score";
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 7px;
+  row-gap: 1px;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 246, 223, .1);
+  border-radius: 13px;
+  background: rgba(255, 246, 223, .06);
+}
+
+.side-ranking-leader {
+  border-color: rgba(227, 174, 69, .55);
+  background: rgba(227, 174, 69, .12);
+}
+
+.side-ranking-place {
+  grid-area: place;
+  font-size: 16px;
+  text-align: center;
+}
+
+.side-ranking-name {
+  grid-area: name;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-ranking-change {
+  grid-area: change;
+  color: #d8d9ca;
+  font-size: 10px;
+  direction: ltr;
+}
+
+.side-ranking-change.points-gained {
+  color: #a9e6ad;
+}
+
+.side-ranking-change.points-lost {
+  color: #ff9d8f;
+}
+
+.side-ranking-score {
+  display: flex;
+  grid-area: score;
+  align-items: baseline;
+  gap: 4px;
   color: #fff6df;
+  font-size: 14px;
+  direction: ltr;
+}
+
+.side-ranking-score small {
+  color: #d2d4bd;
+  font-size: 9px;
+  direction: rtl;
+}
+
+.side-ranking-title {
+  color: #e3ae45;
+  font-size: 12px;
+}
+
+.side-ranking {
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: rgba(10, 32, 24, .7);
+  border: 1px solid rgba(255, 246, 223, .18);
+  color: #f9edca;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .duel-players {
-  display: grid;
+  display: flex;
   min-height: 0;
   flex: 1;
-  grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: stretch;
-  gap: 7px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .duel-players .player-pad:first-child {
-  grid-row: 1;
   transform: rotate(180deg);
 }
 
-.duel-players .question-stage {
-  grid-row: 2;
+.duel-mode {
+  display: flex;
+  flex-direction: column;
 }
 
-.duel-players .player-pad:last-child {
-  grid-row: 3;
-}
-
-.duel-mode .question-stage {
+.duel-mode .game-topbar {
   order: 2;
 }
 
 .duel-mode .duel-players {
-  display: contents;
-}
-
-.duel-mode .player-pad:first-child {
-  order: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .duel-mode .question-stage {
-  order: 2;
+  order: 1;
+  margin: 4px auto 6px;
 }
 
-.duel-mode .player-pad:last-child {
-  order: 3;
+.player-pad-flip {
+  transform: none !important;
 }
 
-.duel-mode .player-pad {
-  flex: 1;
+.player-pad-flip .player-heading,
+.player-pad-flip .answer-grid {
+  transform: none !important;
 }
 
 .player-pad {
@@ -1264,6 +1393,42 @@ button {
 
   .player-pad {
     padding: 5px;
+  }
+}
+
+@media (max-width: 600px) {
+  .computer-play-layout {
+    grid-template-areas:
+      "question"
+      "ranking"
+      "answers";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .computer-play-layout .question-stage {
+    min-height: 115px;
+    padding: 8px 12px;
+  }
+
+  .computer-mode .side-ranking {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: initial;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .side-ranking-heading {
+    grid-column: 1 / -1;
+    padding-bottom: 5px;
+  }
+
+  .side-ranking-item {
+    min-height: 43px;
+    padding: 5px;
+    column-gap: 4px;
   }
 }
 
