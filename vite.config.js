@@ -3,5 +3,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/room-game/',
+  base: process.env.GITHUB_PAGES === 'true' ? '/room-game/' : '/',
+  server: {
+    host: '127.0.0.1',
+    port: 5174,
+    strictPort: true,
+  },
 })

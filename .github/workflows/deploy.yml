@@ -30,7 +30,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_MATCHMAKING_URL: ${{ vars.VITE_MATCHMAKING_URL }}
+          GITHUB_PAGES: 'true'
+          VITE_MATCHMAKING_URL: disabled
 
       - uses: actions/configure-pages@v5
 

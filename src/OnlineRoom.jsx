@@ -9,8 +9,11 @@ const REVEAL_MS = 1000;
 const MATCH_WAIT_MS = 15000;
 const MATCH_CONNECT_TIMEOUT_MS = 20000;
 const ROOM_COLORS = ['#e3ae45', '#c94e3d', '#78b985', '#70a7bc', '#a78bc2', '#e49b9b'];
-const MATCHMAKING_URL = import.meta.env.VITE_MATCHMAKING_URL
-  || (import.meta.env.DEV ? 'http://localhost:3001' : '');
+const MATCHMAKING_DISABLED = import.meta.env.VITE_MATCHMAKING_URL === 'disabled';
+const MATCHMAKING_URL = MATCHMAKING_DISABLED
+  ? ''
+  : import.meta.env.VITE_MATCHMAKING_URL
+    || (import.meta.env.DEV ? 'http://localhost:3001' : window.location.origin);
 const PEER_OPTIONS = {
   host: '0.peerjs.com',
   port: 443,
@@ -401,6 +404,10 @@ function OnlineRoom({ initialMode = 'rooms', onBack, onFallbackComputer }) {
     const playerName = name.trim().slice(0, 12);
     if (!playerName) {
       setError('اكتب اسمك الأول، لحد ١٢ حرف.');
+      return;
+    }
+    if (MATCHMAKING_DISABLED) {
+      setError('المطابقة العشوائية مش متاحة على GitHub Pages. افتح نسخة Render من رابط الموقع.');
       return;
     }
     if (!MATCHMAKING_URL) {

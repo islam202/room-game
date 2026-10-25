@@ -1,24 +1,35 @@
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
 import { Server } from 'socket.io';
 
 const port = Number(process.env.PORT || 3001);
+const appDirectory = path.dirname(fileURLToPath(import.meta.url));
+const frontendDirectory = path.resolve(appDirectory, '..', 'dist');
+const app = express();
 const configuredOrigins = process.env.MATCHMAKING_ALLOWED_ORIGINS
   ?.split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
-const allowedOrigins = configuredOrigins?.length
-  ? configuredOrigins
-  : ['http://localhost:5173', 'http://127.0.0.1:5173'];
-const httpServer = createServer((request, response) => {
-  if (request.url === '/health') {
-    response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ status: 'ok' }));
+const allowedOrigins = [
+  ...(configuredOrigins || []),
+  process.env.RENDER_EXTERNAL_URL,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+].filter(Boolean);
+app.use(express.static(frontendDirectory));
+app.get('/health', (_request, response) => response.json({ status: 'ok' }));
+app.use((request, response, next) => {
+  if (request.method !== 'GET' || request.path.startsWith('/socket.io/')) {
+    next();
     return;
   }
-  response.writeHead(404);
-  response.end();
+  response.sendFile(path.join(frontendDirectory, 'index.html'));
 });
+app.use((_request, response) => response.sendStatus(404));
+const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin(origin, callback) {
